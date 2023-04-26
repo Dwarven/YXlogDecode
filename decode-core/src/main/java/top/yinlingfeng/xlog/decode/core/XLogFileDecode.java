@@ -5,6 +5,8 @@ import top.yinlingfeng.xlog.decode.core.log.LogUtil;
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 
 class RetData{
     int startPos;
@@ -110,7 +112,7 @@ public class XLogFileDecode {
         return  -1;
     }
 
-    private static RetData DecodeBuffer(byte[] _buffer, int _offset, int lastseq, StringBuffer _outbuffer, String privateKey){
+    private static RetData DecodeBuffer(byte[] _buffer, int _offset, int lastseq, ByteArrayOutputStream _outputStream, String privateKey) throws IOException {
         RetData retData = new RetData(_offset, lastseq);
         if (_offset >= _buffer.length) return new RetData(-1, lastseq);
 
@@ -123,7 +125,7 @@ public class XLogFileDecode {
                 return new RetData(-1, lastseq);
             } else {
                 LogUtil.i(TAG, String.format("[F]decode_log_file.py decode error len=%d, result:%s \n", fixpos, ret));
-                _outbuffer.append(String.format("[F]decode_log_file.py decode error len=%d, result:%s \n", fixpos, ret));
+                _outputStream.write(String.format("[F]decode_log_file.py decode error len=%d, result:%s \n", fixpos, ret).getBytes());
                 _offset += fixpos;
             }
         }
@@ -145,7 +147,7 @@ public class XLogFileDecode {
             crypt_key_len = 64;
         } else {
             LogUtil.i(TAG, String.format("n DecodeBuffer _buffer[%d]:%d != MAGIC_NUM_START", _offset, magic_start));
-            _outbuffer.append("in DecodeBuffer _buffer[%d]:%d != MAGIC_NUM_START", _offset, magic_start);
+            _outputStream.write(String.format("in DecodeBuffer _buffer[%d]:%d != MAGIC_NUM_START", _offset, magic_start).getBytes());
             return new RetData(-1, lastseq);
         }
 
@@ -160,7 +162,7 @@ public class XLogFileDecode {
 
         if (seq != 0 && seq != 1 && lastseq != 0 && seq != (lastseq+1)){
             LogUtil.i(TAG, String.format("[F]decode_log_file.py log seq:%d-%d is missing\n", lastseq+1, seq-1));
-            _outbuffer.append(String.format("[F]decode_log_file.py log seq:%d-%d is missing\n", lastseq+1, seq-1));
+            _outputStream.write(String.format("[F]decode_log_file.py log seq:%d-%d is missing\n", lastseq+1, seq-1).getBytes());
         }
 
         if (seq != 0){
@@ -207,12 +209,12 @@ public class XLogFileDecode {
             }
         }catch (Exception e){
             LogUtil.e("异常信息：" + ExceptionUtils.getStackTrace(e));
-            _outbuffer.append(String.format("[F]decode_log_file.py decompress err, %s\n", e.toString()));
+            _outputStream.write(String.format("[F]decode_log_file.py decompress err, %s\n", e.toString()).getBytes());
             retData.startPos = _offset + headerLen + length + 1;
             return retData;
         }
 
-        _outbuffer.append(new String(tmpbuffer));
+        _outputStream.write(tmpbuffer);
 
         retData.startPos = _offset + headerLen + length + 1;
         return retData;
@@ -252,22 +254,18 @@ public class XLogFileDecode {
                 return;
             }
 
-            StringBuffer outbuffer = new StringBuffer();
-
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             RetData retData = new RetData(startpos, 0);
             while (true) {
                 LogUtil.i(TAG, retData.startPos + ":" + retData.lastSeq);
-                retData = DecodeBuffer(_buffer, retData.startPos, retData.lastSeq, outbuffer, privateKey);
+                retData = DecodeBuffer(_buffer, retData.startPos, retData.lastSeq, outputStream, privateKey);
                 if (-1 == retData.startPos) break;
             }
 
-            if (0 == outbuffer.length()) return;
+            byte[] result = outputStream.toByteArray();
+            if (0 == result.length) return;
 
-            os = new FileOutputStream(_outfile);
-            writer = new OutputStreamWriter(os);
-            bw = new BufferedWriter(writer);
-            bw.write(outbuffer.toString());
-            bw.flush();
+            Files.write(Paths.get(_outfile), result);
         } catch (IOException e) {
             LogUtil.e("异常信息：" + ExceptionUtils.getStackTrace(e));
             throw new IOException(e);
